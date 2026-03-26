@@ -18,6 +18,8 @@ class _BillingScreenState extends State<BillingScreen> {
 
   bool isListening = false;
   late stt.SpeechToText speech;
+  bool _speechAvailable = false;
+  bool _speechInitializing = false;
 
   String? selectedCustomer;
   String paymentType = 'Paid';
@@ -38,30 +40,64 @@ class _BillingScreenState extends State<BillingScreen> {
     loadItems();
 
     speech = stt.SpeechToText();
+    _initSpeech();
 
     customerSearchController.addListener(filterCustomers);
     itemSearchController.addListener(filterItems);
   }
 
+  Future<void> _initSpeech() async {
+    if (_speechAvailable || _speechInitializing) return;
+    _speechInitializing = true;
+    try {
+      _speechAvailable = await speech.initialize(
+        onStatus: (status) {
+          if (!mounted) return;
+          if (status == 'notListening' || status == 'done') {
+            setState(() => isListening = false);
+          }
+        },
+        onError: (_) {
+          if (!mounted) return;
+          setState(() => isListening = false);
+        },
+      );
+    } finally {
+      _speechInitializing = false;
+      if (mounted) setState(() {});
+    }
+  }
+
   void startListening() async {
+    await _initSpeech();
+    if (!_speechAvailable) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Speech not available / Mic permission denied (check app permissions)',
+          ),
+        ),
+      );
+      return;
+    }
+
     if (!isListening) {
-      bool available = await speech.initialize();
+      setState(() => isListening = true);
 
-      if (available) {
-        setState(() => isListening = true);
-
-        speech.listen(
-          onResult: (result) {
-            setState(() {
-              itemSearchController.text = result.recognizedWords;
-            });
-          },
-          onSoundLevelChange: (_) {},
-        );
-      }
+      await speech.listen(
+        onResult: (result) {
+          if (!mounted) return;
+          setState(() {
+            itemSearchController.text = result.recognizedWords;
+          });
+        },
+        onSoundLevelChange: (_) {},
+        listenMode: stt.ListenMode.confirmation,
+      );
     } else {
       setState(() => isListening = false);
-      speech.stop();
+      await speech.stop();
     }
   }
 
@@ -113,6 +149,8 @@ class _BillingScreenState extends State<BillingScreen> {
 
   @override
   void dispose() {
+    speech.stop();
+    speech.cancel();
     for (var item in billItems) {
       item['name']?.dispose();
       item['qty']?.dispose();
