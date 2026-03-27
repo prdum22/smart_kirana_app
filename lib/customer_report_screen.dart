@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'customer_history_screen.dart';
+import 'services/user_scope.dart';
 
 class CustomerReportScreen extends StatelessWidget {
   final String customerName;
@@ -12,6 +13,31 @@ class CustomerReportScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Future<bool> confirmDelete(String title) async {
+      return (await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text(title),
+              content: const Text('This cannot be undone.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          )) ??
+          false;
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(customerName),
@@ -34,6 +60,7 @@ class CustomerReportScreen extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('ledger')
+            .where('ownerId', isEqualTo: currentUserId())
             .where('customer', isEqualTo: customerName)
             .snapshots(),
         builder: (context, snapshot) {
@@ -77,8 +104,10 @@ class CustomerReportScreen extends StatelessWidget {
                 status == 'pending' && entryDateKey == todayKey;
             if (pending > 0 && !hideSameDayPendingCredit) {
               borrowEntries.add({
+                'id': doc.id,
                 'date': dateStr,
                 'amount': pending,
+                'status': status,
               });
               remaining += pending;
               continue;
@@ -88,8 +117,10 @@ class CustomerReportScreen extends StatelessWidget {
             // 1) Manual deposit entries (negative pending) always appear.
             if (pending < 0) {
               depositEntries.add({
+                'id': doc.id,
                 'date': dateStr,
                 'amount': -pending,
+                'status': status,
               });
               remaining += pending;
               continue;
@@ -104,8 +135,10 @@ class CustomerReportScreen extends StatelessWidget {
                     .toDouble()
                     .abs();
                 depositEntries.add({
+                  'id': doc.id,
                   'date': paidAt.isNotEmpty ? paidAt : dateStr,
                   'amount': paidAmount,
+                  'status': status,
                 });
               }
             }
@@ -170,10 +203,13 @@ class CustomerReportScreen extends StatelessWidget {
                                       itemCount: borrowEntries.length,
                                       itemBuilder: (context, index) {
                                         final entry = borrowEntries[index];
+                                        final id = (entry['id'] ?? '').toString();
                                         final date =
                                             (entry['date'] ?? '').toString();
                                         final amount =
                                             (entry['amount'] ?? 0).toDouble();
+                                        final status =
+                                            (entry['status'] ?? '').toString();
                                         return ListTile(
                                           dense: true,
                                           contentPadding:
@@ -181,16 +217,59 @@ class CustomerReportScreen extends StatelessWidget {
                                             horizontal: 4,
                                             vertical: 0,
                                           ),
+                                          onLongPress: () async {
+                                            final ok = await confirmDelete(
+                                              'Delete this entry?',
+                                            );
+                                            if (!ok) return;
+                                            await FirebaseFirestore.instance
+                                                .collection('ledger')
+                                                .doc(id)
+                                                .delete();
+                                          },
                                           title: Text(
                                             date.length >= 10
                                                 ? date.substring(0, 10)
                                                 : date,
                                           ),
-                                          trailing: Text(
-                                            '₹${amount.toStringAsFixed(2)}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                          subtitle: status.isEmpty
+                                              ? null
+                                              : Text(
+                                                  status,
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete,
+                                                  size: 18,
+                                                  color: Colors.red,
+                                                ),
+                                                onPressed: () async {
+                                                  final ok =
+                                                      await confirmDelete(
+                                                    'Delete this entry?',
+                                                  );
+                                                  if (!ok) return;
+                                                  await FirebaseFirestore
+                                                      .instance
+                                                      .collection('ledger')
+                                                      .doc(id)
+                                                      .delete();
+                                                },
+                                              ),
+                                              Text(
+                                                '₹${amount.toStringAsFixed(2)}',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         );
                                       },
@@ -224,10 +303,13 @@ class CustomerReportScreen extends StatelessWidget {
                                       itemCount: depositEntries.length,
                                       itemBuilder: (context, index) {
                                         final entry = depositEntries[index];
+                                        final id = (entry['id'] ?? '').toString();
                                         final date =
                                             (entry['date'] ?? '').toString();
                                         final amount =
                                             (entry['amount'] ?? 0).toDouble();
+                                        final status =
+                                            (entry['status'] ?? '').toString();
                                         return ListTile(
                                           dense: true,
                                           contentPadding:
@@ -235,16 +317,59 @@ class CustomerReportScreen extends StatelessWidget {
                                             horizontal: 4,
                                             vertical: 0,
                                           ),
+                                          onLongPress: () async {
+                                            final ok = await confirmDelete(
+                                              'Delete this entry?',
+                                            );
+                                            if (!ok) return;
+                                            await FirebaseFirestore.instance
+                                                .collection('ledger')
+                                                .doc(id)
+                                                .delete();
+                                          },
                                           title: Text(
                                             date.length >= 10
                                                 ? date.substring(0, 10)
                                                 : date,
                                           ),
-                                          trailing: Text(
-                                            '₹${amount.toStringAsFixed(2)}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                          subtitle: status.isEmpty
+                                              ? null
+                                              : Text(
+                                                  status,
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete,
+                                                  size: 18,
+                                                  color: Colors.red,
+                                                ),
+                                                onPressed: () async {
+                                                  final ok =
+                                                      await confirmDelete(
+                                                    'Delete this entry?',
+                                                  );
+                                                  if (!ok) return;
+                                                  await FirebaseFirestore
+                                                      .instance
+                                                      .collection('ledger')
+                                                      .doc(id)
+                                                      .delete();
+                                                },
+                                              ),
+                                              Text(
+                                                '₹${amount.toStringAsFixed(2)}',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         );
                                       },
@@ -285,14 +410,23 @@ Future<void> _showManualEntryDialog(
   required String customerName,
   required bool isBorrow,
 }) async {
+  final uid = currentUserId();
+  if (uid == null) return;
   final controller = TextEditingController();
   final noteController = TextEditingController();
   final formKey = GlobalKey<FormState>();
+  DateTime selectedDate = DateTime.now();
+
+  String dateLabel(DateTime d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(d.day)}-${two(d.month)}-${d.year}';
+  }
 
   await showDialog(
     context: context,
     builder: (context) {
-      return AlertDialog(
+      return StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
         title: Text(isBorrow ? 'Add Borrow' : 'Add Deposit'),
         content: Form(
           key: formKey,
@@ -316,6 +450,33 @@ Future<void> _showManualEntryDialog(
                 },
               ),
               const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  final now = DateTime.now();
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: selectedDate,
+                    firstDate: DateTime(now.year - 5),
+                    lastDate: DateTime(now.year + 1),
+                  );
+                  if (picked == null) return;
+                  setState(() => selectedDate = picked);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Date',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(dateLabel(selectedDate)),
+                      const Icon(Icons.calendar_month, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               TextFormField(
                 controller: noteController,
                 decoration: const InputDecoration(
@@ -334,11 +495,19 @@ Future<void> _showManualEntryDialog(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
               final amount = double.parse(controller.text.trim());
-              final now = DateTime.now().toString();
+              final selectedDateTime = DateTime(
+                selectedDate.year,
+                selectedDate.month,
+                selectedDate.day,
+                DateTime.now().hour,
+                DateTime.now().minute,
+                DateTime.now().second,
+              ).toString();
 
               if (!isBorrow) {
                 final ledgerSnapshot = await FirebaseFirestore.instance
                     .collection('ledger')
+                    .where('ownerId', isEqualTo: uid)
                     .where('customer', isEqualTo: customerName)
                     .get();
 
@@ -365,11 +534,12 @@ Future<void> _showManualEntryDialog(
               final pendingAmount = isBorrow ? amount : -amount;
 
               await FirebaseFirestore.instance.collection('ledger').add({
+                'ownerId': uid,
                 'customer': customerName,
                 'pendingAmount': pendingAmount,
                 'billAmount': 0,
                 'status': isBorrow ? 'manualBorrow' : 'manualDeposit',
-                'date': now,
+                'date': selectedDateTime,
                 'note': noteController.text.trim(),
                 'isManual': true,
               });
@@ -380,6 +550,7 @@ Future<void> _showManualEntryDialog(
             child: const Text('Save'),
           ),
         ],
+      ),
       );
     },
   );

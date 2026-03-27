@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'services/user_scope.dart';
 
 class BillingScreen extends StatefulWidget {
   const BillingScreen({super.key});
@@ -97,7 +98,9 @@ class _BillingScreenState extends State<BillingScreen> {
           });
         },
         onSoundLevelChange: (_) {},
-        listenMode: stt.ListenMode.confirmation,
+        listenOptions: stt.SpeechListenOptions(
+          listenMode: stt.ListenMode.confirmation,
+        ),
       );
     } else {
       setState(() => isListening = false);
@@ -106,17 +109,38 @@ class _BillingScreenState extends State<BillingScreen> {
   }
 
   Future<void> loadCustomers() async {
+    final uid = currentUserId();
+    if (uid == null) {
+      customers = [];
+      if (mounted) setState(() {});
+      return;
+    }
     final snapshot = await FirebaseFirestore.instance
         .collection('customers')
+        .where('ownerId', isEqualTo: uid)
         .get();
 
-    customers = snapshot.docs.map((doc) => doc['name'].toString()).toList();
+    customers = snapshot.docs
+        .where((doc) => (doc.data()['isDeleted'] ?? false) != true)
+        .map((doc) => (doc['name'] ?? '').toString())
+        .where((name) => name.trim().isNotEmpty)
+        .toList();
 
     setState(() {});
   }
 
   Future<void> loadItems() async {
-    final snapshot = await FirebaseFirestore.instance.collection('items').get();
+    final uid = currentUserId();
+    if (uid == null) {
+      allItems = [];
+      _itemMetaByName.clear();
+      if (mounted) setState(() {});
+      return;
+    }
+    final snapshot = await FirebaseFirestore.instance
+        .collection('items')
+        .where('ownerId', isEqualTo: uid)
+        .get();
 
     allItems = snapshot.docs.map((doc) => doc['name'].toString()).toList();
     _itemMetaByName
@@ -195,8 +219,11 @@ class _BillingScreenState extends State<BillingScreen> {
   }
 
   Future<void> loadFrequentItems(String customer) async {
+    final uid = currentUserId();
+    if (uid == null) return;
     final snapshot = await FirebaseFirestore.instance
         .collection('bills')
+        .where('ownerId', isEqualTo: uid)
         .where('customer', isEqualTo: customer)
         .get();
 
@@ -237,12 +264,15 @@ class _BillingScreenState extends State<BillingScreen> {
   }
 
   Future<void> addItemFromSearch() async {
+    final uid = currentUserId();
+    if (uid == null) return;
     final itemName = itemSearchController.text.trim();
 
     if (itemName.isEmpty) return;
 
     final existing = await FirebaseFirestore.instance
         .collection('items')
+        .where('ownerId', isEqualTo: uid)
         .where('name', isEqualTo: itemName)
         .get();
 
@@ -263,6 +293,7 @@ class _BillingScreenState extends State<BillingScreen> {
       };
     } else {
       await FirebaseFirestore.instance.collection('items').add({
+        "ownerId": uid,
         "name": itemName,
         "lastPrice": 0,
         "unitType": "count",
@@ -397,7 +428,7 @@ class _BillingScreenState extends State<BillingScreen> {
                     controller: item['qty'],
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: 'Qty (${unit}) / मात्रा',
+                      labelText: 'Qty ($unit) / मात्रा',
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (_) => setState(() {}),
@@ -407,7 +438,7 @@ class _BillingScreenState extends State<BillingScreen> {
                 SizedBox(
                   width: 110,
                   child: DropdownButtonFormField<String>(
-                    value: allowedUnits.contains(unit)
+                    initialValue: allowedUnits.contains(unit)
                         ? unit
                         : (allowedUnits.isNotEmpty ? allowedUnits[0] : unit),
                     items: allowedUnits
@@ -468,17 +499,21 @@ class _BillingScreenState extends State<BillingScreen> {
   }
 
   Future<void> addCustomerFromSearch() async {
+    final uid = currentUserId();
+    if (uid == null) return;
     final newCustomer = customerSearchController.text.trim();
 
     if (newCustomer.isEmpty) return;
 
     final existing = await FirebaseFirestore.instance
         .collection('customers')
+        .where('ownerId', isEqualTo: uid)
         .where('name', isEqualTo: newCustomer)
         .get();
 
     if (existing.docs.isEmpty) {
       await FirebaseFirestore.instance.collection('customers').add({
+        "ownerId": uid,
         "name": newCustomer,
         "createdAt": DateTime.now().toString(),
       });
@@ -501,6 +536,14 @@ class _BillingScreenState extends State<BillingScreen> {
   }
 
   Future<void> saveBill() async {
+    final uid = currentUserId();
+    if (uid == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again')),
+      );
+      return;
+    }
     if (selectedCustomer == null || selectedCustomer!.trim().isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -525,6 +568,7 @@ class _BillingScreenState extends State<BillingScreen> {
 
       final existingItem = await FirebaseFirestore.instance
           .collection('items')
+          .where('ownerId', isEqualTo: uid)
           .where('name', isEqualTo: itemName)
           .get();
 
@@ -543,7 +587,8 @@ class _BillingScreenState extends State<BillingScreen> {
     }
 
     try {
-      await FirebaseFirestore.instance.collection('bills').add({
+      final billRef = await FirebaseFirestore.instance.collection('bills').add({
+        "ownerId": uid,
         "customer": selectedCustomer,
         "items": items,
         "subtotal": getSubtotal(),
@@ -556,11 +601,13 @@ class _BillingScreenState extends State<BillingScreen> {
 
       if (paymentType == 'Credit') {
         await FirebaseFirestore.instance.collection('ledger').add({
+          "ownerId": uid,
           "customer": selectedCustomer,
           "billAmount": getFinalTotal(),
           "pendingAmount": getFinalTotal(),
           "status": "pending",
           "date": DateTime.now().toString(),
+          "billId": billRef.id,
         });
       }
 
@@ -924,9 +971,12 @@ class _BillingScreenState extends State<BillingScreen> {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             RadioListTile(
+              // ignore: deprecated_member_use
               value: 'Paid',
+              // ignore: deprecated_member_use
               groupValue: paymentType,
               title: const Text('Paid / पूरा भुगतान'),
+              // ignore: deprecated_member_use
               onChanged: (value) {
                 setState(() {
                   paymentType = value.toString();
@@ -934,9 +984,12 @@ class _BillingScreenState extends State<BillingScreen> {
               },
             ),
             RadioListTile(
+              // ignore: deprecated_member_use
               value: 'Credit',
+              // ignore: deprecated_member_use
               groupValue: paymentType,
               title: const Text('Credit / उधार'),
+              // ignore: deprecated_member_use
               onChanged: (value) {
                 setState(() {
                   paymentType = value.toString();

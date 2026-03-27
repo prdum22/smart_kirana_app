@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'services/user_scope.dart';
 
 class BillDetailScreen extends StatelessWidget {
   final String billId;
@@ -27,6 +28,10 @@ class BillDetailScreen extends StatelessWidget {
           }
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
+          final ownerId = (data['ownerId'] ?? '').toString();
+          if (ownerId.isNotEmpty && ownerId != currentUserId()) {
+            return const Center(child: Text('Unauthorized'));
+          }
           final customer = (data['customer'] ?? '').toString();
           final dateStr = (data['date'] ?? '').toString();
           final paymentType = (data['paymentType'] ?? '').toString();

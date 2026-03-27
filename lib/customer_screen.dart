@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'customer_report_screen.dart';
+import 'deleted_customers_screen.dart';
+import 'services/user_scope.dart';
 
 class CustomerScreen extends StatefulWidget {
   const CustomerScreen({super.key});
@@ -29,24 +31,103 @@ class _CustomerScreenState extends State<CustomerScreen> {
     super.dispose();
   }
 
+  Future<bool> _confirmDelete(BuildContext context, String customerName) async {
+    return (await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete this customer?'),
+            content: Text('Soft delete "$customerName"?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        )) ??
+        false;
+  }
+
+  Future<void> _softDeleteCustomer(String customerName) async {
+    final uid = currentUserId();
+    if (uid == null) return;
+    final snap = await FirebaseFirestore.instance
+        .collection('customers')
+        .where('ownerId', isEqualTo: uid)
+        .where('name', isEqualTo: customerName)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return;
+    await FirebaseFirestore.instance
+        .collection('customers')
+        .doc(snap.docs.first.id)
+        .update({
+      'isDeleted': true,
+      'deletedAt': DateTime.now().toString(),
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Customer Ledger'),
         centerTitle: true,
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DeletedCustomersScreen()),
+              );
+            },
+            icon: const Icon(Icons.history, size: 18),
+            label: const Text('Deleted'),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('ledger').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
+        stream: FirebaseFirestore.instance
+            .collection('customers')
+            .where('ownerId', isEqualTo: currentUserId())
+            .snapshots(),
+        builder: (context, customersSnap) {
+          if (!customersSnap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final data = snapshot.data!.docs;
-          if (data.isEmpty) {
-            return const Center(child: Text('No Customer Ledger Data'));
+          final activeCustomers = <String>{};
+          for (final doc in customersSnap.data!.docs) {
+            final raw = doc.data() as Map<String, dynamic>;
+            final isDeleted = (raw['isDeleted'] ?? false) == true;
+            if (isDeleted) continue;
+            final name = (raw['name'] ?? '').toString().trim();
+            if (name.isNotEmpty) activeCustomers.add(name);
           }
+
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('ledger')
+                .where('ownerId', isEqualTo: currentUserId())
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final data = snapshot.data!.docs;
+              if (data.isEmpty) {
+                return const Center(child: Text('No Customer Ledger Data'));
+              }
 
           final Map<String, double> customerTotals = {};
           final now = DateTime.now();
@@ -55,6 +136,9 @@ class _CustomerScreenState extends State<CustomerScreen> {
           for (final doc in data) {
             final raw = doc.data() as Map<String, dynamic>;
             final customer = (doc['customer'] ?? '').toString();
+            if (customer.trim().isEmpty || !activeCustomers.contains(customer)) {
+              continue;
+            }
             final amount = (doc['pendingAmount'] ?? 0).toDouble();
             final status = (raw['status'] ?? '').toString();
             final dateStr = (raw['date'] ?? '').toString();
@@ -129,11 +213,23 @@ class _CustomerScreenState extends State<CustomerScreen> {
                     ? const Center(child: Text('No customer found'))
                     : ListView.separated(
                         itemCount: entries.length,
-                        separatorBuilder: (_, __) =>
+                        separatorBuilder: (_, index) =>
                             Divider(height: 1, color: Colors.grey.shade300),
                         itemBuilder: (context, index) {
                           final entry = entries[index];
                           return InkWell(
+                            onLongPress: () async {
+                              final ok =
+                                  await _confirmDelete(context, entry.key);
+                              if (!ok) return;
+                              await _softDeleteCustomer(entry.key);
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Customer deleted'),
+                                ),
+                              );
+                            },
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -183,6 +279,8 @@ class _CustomerScreenState extends State<CustomerScreen> {
               ),
               const SizedBox(height: 6),
             ],
+          );
+            },
           );
         },
       ),

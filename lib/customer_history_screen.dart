@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'bill_detail_screen.dart';
+import 'services/user_scope.dart';
 
 class CustomerHistoryScreen extends StatefulWidget {
   final String customerName;
@@ -127,6 +128,7 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('bills')
+                  .where('ownerId', isEqualTo: currentUserId())
                   .where('customer', isEqualTo: widget.customerName)
                   .snapshots(),
               builder: (context, snapshot) {
@@ -163,7 +165,7 @@ class _CustomerHistoryScreenState extends State<CustomerHistoryScreen> {
 
                 return ListView.separated(
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, index) =>
                       Divider(height: 1, color: Colors.grey.shade300),
                   itemBuilder: (context, index) {
                     final doc = filtered[index];
