@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'billing_screen.dart';
+import 'customer_screen.dart';
 import 'ledger_screen.dart';
 
 void main() async {
@@ -106,7 +107,12 @@ class HomeScreen extends StatelessWidget {
               icon: Icons.people,
               englishText: 'Customers',
               hindiText: 'ग्राहक',
-              onTap: () => openPlaceholder(context, 'Customers'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CustomerScreen()),
+                );
+              },
             ),
             buildButton(
               context,
@@ -116,7 +122,7 @@ class HomeScreen extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => LedgerScreen()),
+                  MaterialPageRoute(builder: (_) => const LedgerScreen()),
                 );
               },
             ),

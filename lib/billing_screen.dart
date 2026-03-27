@@ -15,6 +15,7 @@ class _BillingScreenState extends State<BillingScreen> {
   List<String> customers = [];
   List<String> allItems = [];
   List<String> filteredItems = [];
+  final Map<String, Map<String, dynamic>> _itemMetaByName = {};
 
   bool isListening = false;
   late stt.SpeechToText speech;
@@ -32,6 +33,9 @@ class _BillingScreenState extends State<BillingScreen> {
 
   List<String> filteredCustomers = [];
   List<Map<String, TextEditingController>> billItems = [];
+  final List<String> _countUnits = const ['pcs', 'packet'];
+  final List<String> _weightUnits = const ['kg', 'g'];
+  final Map<int, String> _itemUnitByIndex = {};
 
   @override
   void initState() {
@@ -115,6 +119,23 @@ class _BillingScreenState extends State<BillingScreen> {
     final snapshot = await FirebaseFirestore.instance.collection('items').get();
 
     allItems = snapshot.docs.map((doc) => doc['name'].toString()).toList();
+    _itemMetaByName
+      ..clear()
+      ..addEntries(
+        snapshot.docs.map((doc) {
+          final data = doc.data();
+          final name = (data['name'] ?? '').toString();
+          return MapEntry<String, Map<String, dynamic>>(
+            name,
+            <String, dynamic>{
+              'id': doc.id,
+              'lastPrice': (data['lastPrice'] ?? 0),
+              'unitType': (data['unitType'] ?? 'count').toString(), // count|weight
+              'defaultUnit': (data['defaultUnit'] ?? 'pcs').toString(),
+            },
+          );
+        }),
+      );
 
     setState(() {});
   }
@@ -211,6 +232,7 @@ class _BillingScreenState extends State<BillingScreen> {
       'qty': TextEditingController(),
       'rate': TextEditingController(),
     });
+    _itemUnitByIndex[billItems.length - 1] = 'pcs';
     setState(() {});
   }
 
@@ -225,13 +247,26 @@ class _BillingScreenState extends State<BillingScreen> {
         .get();
 
     double lastPrice = 0;
+    String unitType = 'count';
+    String defaultUnit = 'pcs';
 
     if (existing.docs.isNotEmpty) {
-      lastPrice = (existing.docs.first['lastPrice'] ?? 0).toDouble();
+      final data = existing.docs.first.data();
+      lastPrice = (data['lastPrice'] ?? 0).toDouble();
+      unitType = (data['unitType'] ?? 'count').toString();
+      defaultUnit = (data['defaultUnit'] ?? 'pcs').toString();
+      _itemMetaByName[itemName] = {
+        'id': existing.docs.first.id,
+        'lastPrice': data['lastPrice'] ?? 0,
+        'unitType': unitType,
+        'defaultUnit': defaultUnit,
+      };
     } else {
       await FirebaseFirestore.instance.collection('items').add({
         "name": itemName,
         "lastPrice": 0,
+        "unitType": "count",
+        "defaultUnit": "pcs",
         "updatedAt": DateTime.now().toString(),
       });
       await loadItems();
@@ -244,6 +279,10 @@ class _BillingScreenState extends State<BillingScreen> {
         text: lastPrice == 0 ? '' : lastPrice.toString(),
       ),
     });
+    _itemUnitByIndex[billItems.length - 1] =
+        (unitType == 'weight' && (defaultUnit == 'kg' || defaultUnit == 'g'))
+            ? defaultUnit
+            : (unitType == 'weight' ? 'kg' : 'pcs');
 
     setState(() {
       itemSearchController.clear();
@@ -256,13 +295,42 @@ class _BillingScreenState extends State<BillingScreen> {
     billItems[index]['qty']?.dispose();
     billItems[index]['rate']?.dispose();
     billItems.removeAt(index);
+    _itemUnitByIndex.remove(index);
+    // Re-map units to new indices after removal
+    final remapped = <int, String>{};
+    for (var i = 0; i < billItems.length; i++) {
+      remapped[i] = _itemUnitByIndex[i] ?? 'pcs';
+    }
+    _itemUnitByIndex
+      ..clear()
+      ..addAll(remapped);
     setState(() {});
+  }
+
+  double _qtyToBaseQty(double qty, String unit) {
+    // Base quantity is:
+    // - kg for weight units
+    // - count for pcs/packet
+    if (unit == 'g') return qty / 1000.0;
+    return qty;
+  }
+
+  bool _isWeightUnit(String unit) => unit == 'kg' || unit == 'g';
+
+  List<String> _allowedUnitsForItemName(String itemName) {
+    final meta = _itemMetaByName[itemName];
+    if (meta == null) return [..._countUnits, ..._weightUnits];
+    final unitType = (meta['unitType'] ?? 'count').toString();
+    return unitType == 'weight' ? _weightUnits : _countUnits;
   }
 
   double getSubtotal() {
     double total = 0;
-    for (var item in billItems) {
-      final qty = double.tryParse(item['qty']?.text ?? '') ?? 0;
+    for (var i = 0; i < billItems.length; i++) {
+      final item = billItems[i];
+      final unit = _itemUnitByIndex[i] ?? 'pcs';
+      final qtyRaw = double.tryParse(item['qty']?.text ?? '') ?? 0;
+      final qty = _qtyToBaseQty(qtyRaw, unit);
       final rate = double.tryParse(item['rate']?.text ?? '') ?? 0;
       total += qty * rate;
     }
@@ -278,7 +346,11 @@ class _BillingScreenState extends State<BillingScreen> {
 
   Widget buildItemCard(int index) {
     final item = billItems[index];
-    final qty = double.tryParse(item['qty']?.text ?? '') ?? 0;
+    final itemName = item['name']?.text.trim() ?? '';
+    final allowedUnits = _allowedUnitsForItemName(itemName);
+    final unit = _itemUnitByIndex[index] ?? 'pcs';
+    final qtyRaw = double.tryParse(item['qty']?.text ?? '') ?? 0;
+    final qty = _qtyToBaseQty(qtyRaw, unit);
     final rate = double.tryParse(item['rate']?.text ?? '') ?? 0;
     final total = qty * rate;
 
@@ -295,7 +367,27 @@ class _BillingScreenState extends State<BillingScreen> {
                 labelText: 'Item Name / सामान का नाम',
                 border: OutlineInputBorder(),
               ),
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) {
+                final nameNow = item['name']?.text.trim() ?? '';
+                final meta = _itemMetaByName[nameNow];
+                if (meta != null) {
+                  final unitType = (meta['unitType'] ?? 'count').toString();
+                  final defUnit = (meta['defaultUnit'] ?? 'pcs').toString();
+                  final newAllowed =
+                      unitType == 'weight' ? _weightUnits : _countUnits;
+                  final currentUnit = _itemUnitByIndex[index] ?? 'pcs';
+                  if (!newAllowed.contains(currentUnit)) {
+                    _itemUnitByIndex[index] =
+                        (newAllowed.contains(defUnit) ? defUnit : newAllowed[0]);
+                  }
+                  final currentRate = item['rate']?.text ?? '';
+                  if (currentRate.trim().isEmpty) {
+                    final lp = (meta['lastPrice'] ?? 0).toDouble();
+                    if (lp != 0) item['rate']?.text = lp.toString();
+                  }
+                }
+                setState(() {});
+              },
             ),
             const SizedBox(height: 10),
             Row(
@@ -304,11 +396,38 @@ class _BillingScreenState extends State<BillingScreen> {
                   child: TextField(
                     controller: item['qty'],
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Qty / मात्रा',
+                    decoration: InputDecoration(
+                      labelText: 'Qty (${unit}) / मात्रा',
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 110,
+                  child: DropdownButtonFormField<String>(
+                    value: allowedUnits.contains(unit)
+                        ? unit
+                        : (allowedUnits.isNotEmpty ? allowedUnits[0] : unit),
+                    items: allowedUnits
+                        .map(
+                          (u) => DropdownMenuItem<String>(
+                            value: u,
+                            child: Text(u),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _itemUnitByIndex[index] = value;
+                      });
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Unit',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -316,8 +435,10 @@ class _BillingScreenState extends State<BillingScreen> {
                   child: TextField(
                     controller: item['rate'],
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Rate / रेट',
+                    decoration: InputDecoration(
+                      labelText: _isWeightUnit(unit)
+                          ? 'Rate (per kg) / रेट'
+                          : 'Rate (per unit) / रेट',
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (_) => setState(() {}),
@@ -389,13 +510,16 @@ class _BillingScreenState extends State<BillingScreen> {
 
     List<Map<String, dynamic>> items = [];
 
-    for (var item in billItems) {
+    for (var i = 0; i < billItems.length; i++) {
+      final item = billItems[i];
+      final unit = _itemUnitByIndex[i] ?? 'pcs';
       final itemName = item['name']?.text ?? "";
       final rateValue = double.tryParse(item['rate']?.text ?? "") ?? 0;
 
       items.add({
         "name": itemName,
         "qty": double.tryParse(item['qty']?.text ?? "") ?? 0,
+        "unit": unit,
         "rate": rateValue,
       });
 
@@ -405,11 +529,14 @@ class _BillingScreenState extends State<BillingScreen> {
           .get();
 
       if (existingItem.docs.isNotEmpty) {
+        final unitType = _isWeightUnit(unit) ? 'weight' : 'count';
         await FirebaseFirestore.instance
             .collection('items')
             .doc(existingItem.docs.first.id)
             .update({
               "lastPrice": rateValue,
+              "unitType": unitType,
+              "defaultUnit": unit,
               "updatedAt": DateTime.now().toString(),
             });
       }
@@ -605,6 +732,168 @@ class _BillingScreenState extends State<BillingScreen> {
               const Text('No items added / अभी कोई सामान नहीं जोड़ा गया'),
 
             ...List.generate(billItems.length, (index) => buildItemCard(index)),
+
+            const SizedBox(height: 16),
+
+            const Text(
+              'Bill Preview / बिल सूची',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                      ),
+                    ),
+                    child: const Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            'S.No.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 4,
+                          child: Text(
+                            'Items',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 4,
+                          child: Text(
+                            'Quantity',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Price',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  ...List.generate(billItems.length, (index) {
+                    final item = billItems[index];
+                    final itemName = item['name']?.text ?? '';
+                    final qty = item['qty']?.text ?? '';
+                    final rate = double.tryParse(item['rate']?.text ?? '') ?? 0;
+                    final qtyValue = double.tryParse(qty) ?? 0;
+                    final rowTotal = qtyValue * rate;
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              '${index + 1}.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          Expanded(
+                            flex: 4,
+                            child: Text(itemName, textAlign: TextAlign.center),
+                          ),
+                          Expanded(
+                            flex: 4,
+                            child: Text(qty, textAlign: TextAlign.center),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              rowTotal.toStringAsFixed(0),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 14,
+                      horizontal: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        top: BorderSide(color: Colors.grey.shade400),
+                      ),
+                      color: Colors.grey.shade100,
+                    ),
+                    child: Row(
+                      children: [
+                        const Expanded(flex: 2, child: SizedBox()),
+                        const Expanded(
+                          flex: 4,
+                          child: Text(
+                            'TOTAL',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const Expanded(flex: 4, child: SizedBox()),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            finalTotal.toStringAsFixed(0),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
             const SizedBox(height: 16),
 
