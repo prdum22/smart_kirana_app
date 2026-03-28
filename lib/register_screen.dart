@@ -47,6 +47,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         userId: _userIdController.text.trim(),
         password: _passwordController.text,
       );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification link sent! Check your email to verify before logging in.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     } catch (e) {
       setState(() {
         String errorMsg = e.toString().replaceFirst('Exception: ', '');

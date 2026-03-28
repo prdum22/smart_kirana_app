@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? initialUserId;
+  final String? initialPassword;
   final bool showRegister;
   final Future<void> Function({
     required String userId,
@@ -16,6 +18,7 @@ class LoginScreen extends StatefulWidget {
     super.key,
     required this.onLogin,
     this.initialUserId,
+    this.initialPassword,
     this.onOpenRegister,
     this.showRegister = true,
   });
@@ -32,11 +35,13 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _error;
+  bool _showResendVerification = false;
 
   @override
   void initState() {
     super.initState();
     _userIdController.text = widget.initialUserId ?? '';
+    _passwordController.text = widget.initialPassword ?? '';
   }
 
   @override
@@ -61,9 +66,15 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       setState(() {
         String errorMsg = e.toString().replaceFirst('Exception: ', '');
+        _showResendVerification = false;
+        
         if (errorMsg.contains('CONFIGURATION_NOT_FOUND')) {
           errorMsg = 'Developer Error: Email/Password login is not enabled in Firebase Console.';
+        } else if (errorMsg == 'email_not_verified') {
+          errorMsg = 'Please verify your email before logging in. Check your inbox.';
+          _showResendVerification = true;
         }
+        
         _error = errorMsg;
       });
     } finally {
@@ -137,17 +148,46 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 6),
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
                         value: _rememberUserId,
-                        title: const Text('Remember User ID'),
+                        title: const Text('Remember Login Info / लॉगिन याद रखें'),
                         onChanged: (v) =>
                             setState(() => _rememberUserId = v ?? true),
                       ),
                       if (_error != null) ...[
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 12),
                         Text(
                           _error!,
                           style: const TextStyle(color: Colors.red),
                         ),
+                        if (_showResendVerification) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () async {
+                              try {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Sending link...')),
+                                );
+                                await AuthService().resendVerificationEmail(
+                                  _userIdController.text.trim(),
+                                  _passwordController.text,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Verification link sent! Check your inbox.')),
+                                  );
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error: ${e.toString()}')),
+                                  );
+                                }
+                              }
+                            },
+                            child: const Text('Resend Verification Link'),
+                          ),
+                        ]
                       ],
                       const SizedBox(height: 10),
                       SizedBox(

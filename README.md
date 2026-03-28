@@ -13,7 +13,20 @@ A Flutter + Firebase app for small kirana store that manage:
 - Firebase Core
 - Cloud Firestore
 - Speech to Text (item search input support)
+- Flutter Secure Storage (for local credential encryption)
 
+## Recent Updates (Changelog)
+
+- **Authentication Enhancements:**
+  - Secure local auto-fill for Email and Password using `flutter_secure_storage` ("Remember Login Info").
+  - Enforced Firebase Email Verification for new registrations to prevent fake accounts.
+  - Added "Forgot Password" functionality via Firebase Password Reset links.
+  - Added "Resend Verification Link" capability directly from the login screen.
+  - Added a responsive Logout button to the Home Screen footer.
+  - Upgraded Firebase packages (`firebase_auth`, `firebase_core`, `cloud_firestore`) to latest major versions to fix Pigeon mismatch native errors.
+- **Customer Ledger Enhancements:**
+  - Added a Floating Action Button (FAB) `+` to the Customer Screen to manually add new customers.
+  - Fixed a logical bug where customers with paid/0 balance were hidden from the Customer Ledger list; all customers now default to showing up with a 0.00 balance if no ledger entries exist.
 ## Main Screens
 
 - `lib/main.dart`
