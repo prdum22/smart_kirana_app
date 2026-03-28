@@ -1,6 +1,6 @@
 # Smart Kirana App
 
-A Flutter + Firebase app for small kirana stores to manage:
+A Flutter + Firebase app for small kirana store that manage:
 - billing
 - daily credit ledger
 - customer-wise borrow/deposit tracking
