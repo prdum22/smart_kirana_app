@@ -322,59 +322,87 @@ class HomeScreen extends StatelessWidget {
       ),
       body: Padding(
         padding: const EdgeInsets.all(12),
-        child: GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.05,
+        child: Column(
           children: [
-            buildButton(
-              context,
-              icon: Icons.receipt_long,
-              englishText: 'New Bill',
-              hindiText: 'नया बिल',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BillingScreen()),
-                );
-              },
+            Expanded(
+              child: GridView.count(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.05,
+                children: [
+                  buildButton(
+                    context,
+                    icon: Icons.receipt_long,
+                    englishText: 'New Bill',
+                    hindiText: 'नया बिल',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const BillingScreen()),
+                      );
+                    },
+                  ),
+                  buildButton(
+                    context,
+                    icon: Icons.people,
+                    englishText: 'Customers',
+                    hindiText: 'ग्राहक',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const CustomerScreen()),
+                      );
+                    },
+                  ),
+                  buildButton(
+                    context,
+                    icon: Icons.book,
+                    englishText: 'Ledger',
+                    hindiText: 'उधार खाता',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LedgerScreen()),
+                      );
+                    },
+                  ),
+                  buildButton(
+                    context,
+                    icon: Icons.bar_chart,
+                    englishText: 'Daily Report',
+                    hindiText: 'रोज़ की रिपोर्ट',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const DailyReportScreen()),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
-            buildButton(
-              context,
-              icon: Icons.people,
-              englishText: 'Customers',
-              hindiText: 'ग्राहक',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CustomerScreen()),
-                );
-              },
-            ),
-            buildButton(
-              context,
-              icon: Icons.book,
-              englishText: 'Ledger',
-              hindiText: 'उधार खाता',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LedgerScreen()),
-                );
-              },
-            ),
-            buildButton(
-              context,
-              icon: Icons.bar_chart,
-              englishText: 'Daily Report',
-              hindiText: 'रोज़ की रिपोर्ट',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DailyReportScreen()),
-                );
-              },
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  await AuthService().logout();
+                  if (context.mounted) {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AuthGate()),
+                      (r) => false,
+                    );
+                  }
+                },
+                icon: const Icon(Icons.logout, color: Colors.red),
+                label: const Text('Logout / लॉग आउट', style: TextStyle(color: Colors.red)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.red),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
             ),
           ],
         ),

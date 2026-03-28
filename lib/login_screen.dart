@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? initialUserId;
@@ -59,7 +60,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        String errorMsg = e.toString().replaceFirst('Exception: ', '');
+        if (errorMsg.contains('CONFIGURATION_NOT_FOUND')) {
+          errorMsg = 'Developer Error: Email/Password login is not enabled in Firebase Console.';
+        }
+        _error = errorMsg;
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -160,12 +165,34 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       TextButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Forgot Password: coming soon'),
-                            ),
-                          );
+                        onPressed: () async {
+                          final email = _userIdController.text.trim();
+                          if (email.isEmpty || !email.contains('@')) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please enter a valid email ID above to reset password'),
+                              ),
+                            );
+                            return;
+                          }
+                          try {
+                            await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Password reset link sent to your email! / लिंक भेज दिया गया है'),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error: ${e.toString().replaceFirst('Exception: ', '')}'),
+                                ),
+                              );
+                            }
+                          }
                         },
                         child: const Text('Forgot Password'),
                       ),

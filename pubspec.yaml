@@ -31,14 +31,14 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.2
-  firebase_core: ^2.24.2
-  cloud_firestore: ^4.14.0
+  firebase_core: ^4.6.0
+  cloud_firestore: ^6.2.0
   pdf: ^3.10.7
   printing: ^5.11.1
   speech_to_text: ^7.3.0
   intl: ^0.19.0
   dropdown_search: ^5.0.6
-  firebase_auth: ^4.16.0
+  firebase_auth: ^6.3.0
   flutter_secure_storage: ^10.0.0
   shared_preferences: ^2.5.5
 

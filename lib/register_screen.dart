@@ -49,7 +49,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     } catch (e) {
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        String errorMsg = e.toString().replaceFirst('Exception: ', '');
+        if (errorMsg.contains('CONFIGURATION_NOT_FOUND')) {
+          errorMsg = 'Developer Error: Please enable Email/Password provider in Firebase Console (Authentication -> Sign-in method).';
+        }
+        _error = errorMsg;
       });
     } finally {
       if (mounted) setState(() => _loading = false);
