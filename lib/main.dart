@@ -79,6 +79,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
   _GateStage _stage = _GateStage.loading;
   String? _rememberedUserId;
+  String? _rememberedPassword;
   bool _pinResetMode = false;
   String? _uid;
 
@@ -120,7 +121,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   }
 
   Future<void> _init() async {
-    _rememberedUserId = await _authService.getRememberedUserId();
+    final credentials = await _authService.getRememberedCredentials();
+    _rememberedUserId = credentials['email'];
+    _rememberedPassword = credentials['password'];
     final user = FirebaseAuth.instance.currentUser;
     _uid = user?.uid;
     if (user == null) {
@@ -151,9 +154,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     if (uid == null) throw Exception('Login failed');
 
     if (rememberUserId) {
-      await _authService.rememberUserId(userId);
+      await _authService.rememberCredentials(userId, password);
     } else {
-      await _authService.clearRememberedUserId();
+      await _authService.clearRememberedCredentials();
     }
 
     await _sessionService.startSession(uid);
@@ -219,6 +222,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       case _GateStage.login:
         return LoginScreen(
           initialUserId: _rememberedUserId,
+          initialPassword: _rememberedPassword,
           onLogin: _handleLogin,
           onOpenRegister: () => setState(() => _stage = _GateStage.register),
         );

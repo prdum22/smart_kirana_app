@@ -125,16 +125,21 @@ class _CustomerScreenState extends State<CustomerScreen> {
               }
 
               final data = snapshot.data!.docs;
-              if (data.isEmpty) {
-                return const Center(child: Text('No Customer Ledger Data'));
+              if (data.isEmpty && activeCustomers.isEmpty) {
+                return const Center(child: Text('No Customers Found / कोई ग्राहक नहीं'));
               }
 
-          final Map<String, double> customerTotals = {};
-          final now = DateTime.now();
-          String two(int v) => v.toString().padLeft(2, '0');
-          final todayKey = '${now.year}-${two(now.month)}-${two(now.day)}';
-          for (final doc in data) {
-            final raw = doc.data() as Map<String, dynamic>;
+              final Map<String, double> customerTotals = {};
+              // Initialize all known active customers with 0 balance
+              for (final c in activeCustomers) {
+                customerTotals[c] = 0.0;
+              }
+              
+              final now = DateTime.now();
+              String two(int v) => v.toString().padLeft(2, '0');
+              final todayKey = '${now.year}-${two(now.month)}-${two(now.day)}';
+              for (final doc in data) {
+                final raw = doc.data() as Map<String, dynamic>;
             final customer = (doc['customer'] ?? '').toString();
             if (customer.trim().isEmpty || !activeCustomers.contains(customer)) {
               continue;
@@ -283,6 +288,88 @@ class _CustomerScreenState extends State<CustomerScreen> {
             },
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddCustomerDialog(context),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  Future<void> _showAddCustomerDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    final uid = currentUserId();
+    if (uid == null) return;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add New Customer / नया ग्राहक'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Customer Name / नाम',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              
+              Navigator.pop(ctx);
+              
+              // Check if currently exists
+              final snap = await FirebaseFirestore.instance
+                  .collection('customers')
+                  .where('ownerId', isEqualTo: uid)
+                  .where('name', isEqualTo: name)
+                  .get();
+                  
+              if (snap.docs.isEmpty) {
+                await FirebaseFirestore.instance.collection('customers').add({
+                  "ownerId": uid,
+                  "name": name,
+                  "isDeleted": false,
+                  "createdAt": DateTime.now().toString(),
+                });
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Customer Added! ✅')),
+                  );
+                }
+              } else {
+                // If it already exists but might be soft deleted, restore it
+                final doc = snap.docs.first;
+                final data = doc.data();
+                if (data['isDeleted'] == true) {
+                  await FirebaseFirestore.instance.collection('customers').doc(doc.id).update({
+                    "isDeleted": false,
+                  });
+                   if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Customer Restored! ✅')),
+                    );
+                  }
+                } else {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Customer already exists!')),
+                    );
+                  }
+                }
+              }
+            },
+            child: const Text('Add / जोड़ें'),
+          ),
+        ],
       ),
     );
   }
